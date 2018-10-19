@@ -1,0 +1,73 @@
+# ansible-playbook -K playbook.yml
+
+- name: add mongo apt key
+  apt_key:
+    url: https://www.mongodb.org/static/pgp/server-4.0.asc
+    state: present
+
+- name: add mongo repository
+  apt_repository:
+    # ansible_distribution_release = OS verstion, like bionic, xenial or trusty
+    repo: deb https://repo.mongodb.org/apt/ubuntu {{ansible_distribution_release}}/mongodb-org/4.0 multiverse
+    state: present
+
+- name: install mongo
+  apt:
+    name: mongodb-org=4.0.3
+    state: present
+    install_recommends: no
+    update_cache: yes
+
+- name: allow mongo port on firewall
+  ufw:
+    rule: allow
+    port: 27017
+
+- name: install mongodb_user module dependencies 1/2
+  apt:
+    name: "{{ packages }}"
+  vars:
+    packages:
+    - virtualenv
+    - python3-pip
+
+# https://docs.ansible.com/ansible/latest/modules/mongodb_user_module.html
+- name: install mongodb_user module dependencies 2/2
+  pip:
+    name: pymongo
+
+- name: start mongo service
+  service:
+    name: mongod
+    state: started
+
+- name: add mongo admin
+  mongodb_user:
+    database: admin
+    name: wololo
+    password: 12345
+    login_port: 27017
+    roles: userAdminAnyDatabase
+    state: present
+
+# https://www.digitalocean.com/community/tutorials/how-to-install-mongodb-on-ubuntu-18-04
+- name: config mongo to allow remote connections
+  lineinfile:
+    path: /etc/mongod.conf
+    regexp: '^ +bindIp'
+    line: '  bindIp: 127.0.0.1,{{ hostvars[inventory_hostname]["ansible_default_ipv4"]["address"] }}'
+    backup: yes
+
+- name: config mongo to add authentication
+  lineinfile:
+    path: /etc/mongod.conf
+    regexp: '^#security:'
+    line: >
+      security:
+        authorization: enabled
+    backup: yes
+
+- name: restart mongo service
+  service:
+    name: mongod
+    state: restarted
